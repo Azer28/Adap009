@@ -1,0 +1,18 @@
+package stream.api.adapter.com.unibank.mhm;
+
+import javax.xml.bind.annotation.XmlAnyElement;
+import javax.xml.bind.annotation.XmlElement;
+import javax.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Created by AzarM on 4/28/2018.
+ */
+public class Data {
+
+    @XmlElement(name = "nested")
+    public Nested nested;
+
+
+}

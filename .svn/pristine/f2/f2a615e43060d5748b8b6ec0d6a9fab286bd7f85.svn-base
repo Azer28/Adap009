@@ -1,0 +1,350 @@
+package stream.api.adapter.com.unibank;
+
+import com.signature.RSASignature;
+import org.xml.sax.InputSource;
+import stream.api.*;
+import stream.api.Detail;
+import stream.api.ValidationException;
+import stream.api.adapter.com.unibank.mhm.BillMap;
+import stream.api.adapter.com.unibank.mhm.Loan;
+import stream.api.adapter.com.unibank.request.Requester;
+import stream.api.adapter.com.unibank.request.Response;
+
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLSession;
+import javax.xml.bind.*;
+import javax.xml.crypto.Data;
+import java.io.*;
+import java.math.BigInteger;
+import java.net.*;
+import java.security.*;
+import java.security.interfaces.RSAPrivateCrtKey;
+import java.security.spec.*;
+import java.util.*;
+
+/**
+ * Created by AzarM on 4/16/2018.
+ */
+public class ADP0009 implements Adapter  {
+
+    Configurator configurator;
+
+    @Override
+    public void initialize(Configurator configurator) throws IOException {
+        this.configurator = configurator;
+    }
+
+    @Override
+    public void validate(Service service, List<Detail> list) throws IOException, ValidationException {
+
+    }
+
+    @Override
+    public List<stream.api.Bill> getBillList(Service service, List<Detail> list) throws IOException, ValidationException {
+
+        Map<String, String> detailsMap = new HashMap<>();
+        for(stream.api.Detail detail : list) {
+            detailsMap.put(detail.getName(), detail.getValue());
+        }
+
+        RSASignature signatureResolver = new RSASignature();
+
+        String template = "<request point=\"%s\"><advanced service=\"%s\" function=\"contracts\"><attribute name=\"id1\" value=\"%ы\"></attribute></advanced></request>";
+        String serviceCode = configurator.getSetting("/adapter/serviceCode");
+        String pointNumber = configurator.getSetting("/adapter/pointNumber");
+        String message = String.format(template, pointNumber, serviceCode, detailsMap.get("loanNo"));
+        String base64SignedData = signatureResolver.sign(message);
+        System.out.println(message);
+        System.out.println(base64SignedData);
+        Response response = sendRequest(message, base64SignedData);
+        System.out.println(response.getResponseCode());
+        System.out.println(response.getTextResponse());
+
+        JAXBContext jaxbContext = null;
+
+        try {
+            jaxbContext = JAXBContext.newInstance(Loan.class);
+            Unmarshaller unmarshaller = jaxbContext.createUnmarshaller();
+            Loan loan = (Loan) unmarshaller.unmarshal(new StringReader(response.getTextResponse()));
+
+            System.out.println(loan.getAccount());
+//            System.out.println(loan.result.loanData.detailsMap);
+//            System.out.println(loan.result.loanData.nested.loanData.detailsMap);
+//            System.out.println(loan.result.code);
+            Map<String, String> outerMap =  loan.getOuterMap();//loan.result.loanData.detailsMap;
+            Map<String, String> innerMap = loan.getInnerMap();// loan.result.loanData.nested.loanData.detailsMap;
+            //resultBillingInfo.
+            BillMap billMap = new BillMap().with("inn", "taxNumber")
+                                            .with("fio", "subscriberName")
+                                            .with("Amount", "amountDue")
+                                            .with("OriginalAmount", "loanOriginalAmount")
+                                            .with("OustandingBalancePrincipal", "overallAmount")
+                                            .with("Contract_Ref_No", "contractNo")
+                                            .buildBillMap(innerMap);
+
+            billMap.buildBillMap(outerMap);
+            billMap.convertToCents("amountDue", "overallAmount", "loanOriginalAmount");
+
+
+           return new LoanBillingInfo().convertToBillingInfo(billMap);
+
+        } catch (JAXBException e) {
+            e.printStackTrace();
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        }
+        return null;
+
+
+//
+//                loan = (Loan) unmarshaller.unmarshal(new StringReader(convertedMessage));
+//
+//                System.out.println(loan.getAccount());
+//                System.out.println(loan.result.loanData.detailsMap);
+//                System.out.println(loan.result.loanData.nested.loanData.detailsMap);
+//                System.out.println(loan.result.code);
+//            } else {
+//                System.out.println(String.format("Verifying signature %s is wrong %s", responseEncoded,  baos.toString()));
+//                throw new ValidationException("Verification signature is wrong");
+//            }
+    }
+    public boolean verify(String message, String encodedResponse) throws UnsupportedEncodingException {
+        System.out.println(message);
+        return verify(message.getBytes("UTF-8"), encodedResponse);
+    }
+    public boolean verify(byte[] message, String encodedResponse) {
+        try {
+            //message = "<response><result code=\"1\" service=\"0\"></result></response>";
+//            message = "<response><result code=\"0\">\n" +
+//                    "<folder id=\"3193\" name=\"Services\" img=\"\" order=\"0\">\n" +
+//                    "<service id=\"405\" code=\"402\" name=\"Baktelecom.az\" img=\"baktelecomaz.png\" order=\"0\" commission=\"0 %\" maxsum=\"80000\" minsum=\"1\" hotkey=\"0\" handlerType=\"AdvancedProvider\" />\n" +
+//                    "<service id=\"427\" code=\"427\" name=\"Az&#601;riqaz &#304;B\" img=\"azerigas.png\" order=\"1\" commission=\"0 %\" maxsum=\"1500000\" minsum=\"100\" hotkey=\"0\" handlerType=\"AdvancedProvider\" />\n" +
+//                    "<service id=\"463\" code=\"463\" name=\"TransEuroCom (Internet)\" img=\"transeurocom.png\" order=\"2\" commission=\"0 %\" maxsum=\"1000000\" minsum=\"10\" hotkey=\"0\" handlerType=\"AdvancedProvider\" />\n" +
+//                    "<service id=\"349\" code=\"349\" name=\"Embafinans\" img=\"bank/embaflogo.png\" order=\"3\" commission=\"0 %\" maxsum=\"500000\" minsum=\"100\" hotkey=\"0\" handlerType=\"UniversalProvider\" />\n" +
+//                    "<service id=\"238\" code=\"238\" name=\"Kapital Bank\" img=\"bank/kapbank.png\" order=\"3\" commission=\"0 %\" maxsum=\"1000000\" minsum=\"100\" hotkey=\"0\" handlerType=\"AdvancedProvider\" />\n" +
+//                    "</folder>\n" +
+//                    "</result></response>";
+            //encodedResponse = "HstD9/sOqZEXNJBAt2OvpV3axNnsIapKIPSjuEcJ5+cw8PDW06yTb67j3TQYSP0ua5AKeIAxPRJCQhepU4ejtidyQln/Axw1uf53dDk7mwvvs5NPxXbiz9zosJI6Xi4wW/DqVxZz4MiyXBzt0hYyRGu4CKRK9JrgvRdj7OGsqQk3+KZ4fXoY4HX3aYAsBLaXe/sL8G6jcHNA9m7kpHkIfxWe631wFravuDn9L948x7cYFE6TjUvzfWMi8bhwDmUkJr4dEcWNLplJqR78sJjXVzS7kcztAWQ+aSyvUAAZNld5HMYxkDCseB0B9tW7n8DQ3oh6aLNj7lSsOjYlTKfi8w==";
+           // encodedResponse = "VU2++15RZNouycL2Aa/iUwFqCTaozn4KhQU/dlJ1hzE9wH6NiU/eh0UEx4GhLcLideqJtOhC/Hr6WFCsq5dMuvgDsvozcMbvZUQzTD3zVrzzWOVGzewv3pATwKUzDMvHuBRVlJuaDaKBtrWixFwEDliE/1XQW0TmXKRlxHVcwE0WIla/D9uboSRKHrbqslH4g8FVZ9hW03mu+rDiYWpnu80nJu6xu+G0YQ9F5h/1O8ID09vi6l/z7IWgI+CXNzv0GDfCoBvolXCm0v5PkEJNdlC+SNfQtFA36RywZJKMUnSVaARXRTlzYv1CQSeD0kzj00xnu6b7JG/1vvJ3vKz0Mg==";
+            KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+//            String rsaPublic =
+//                    "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7rq7DiX6xZglfOY9V6rAF7odgR63OUeY5xEtROJLqmmuBzEKC/+HB9uHVsP8aQVUDrl520kAcUNdGe0q/f8XSaPik5URNSMZ/zEPuRaQdo8bEnkfakct9KmZzFv4YbLN33IzHYInaBibcGhF18ji vUjCwFYo9LdOaBBe0UeHSeDDtfa1oeH7ql6KEDjrzyjFYCwuJBeWlB++vKysfjJ+7Ixz096cQZL2WdW6uPqXQr7GkUgoBmGxClAj6lyKn+pKDIDp5/9S54xIwiIazEmW76MH1mvkrgkeBfMG4RsXwkp9I7lmEdpFatIZU4DpUEPmJ3oTZirtb+9HHawrsM1EvwIDAQAB";
+            String rsaPublic =
+                    "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7rq7DiX6xZglfOY9V6rA" +
+                            "F7odgR63OUeY5xEtROJLqmmuBzEKC/+HB9uHVsP8aQVUDrl520kAcUNdGe0q/f8X" +
+                            "SaPik5URNSMZ/zEPuRaQdo8bEnkfakct9KmZzFv4YbLN33IzHYInaBibcGhF18ji" +
+                            "vUjCwFYo9LdOaBBe0UeHSeDDtfa1oeH7ql6KEDjrzyjFYCwuJBeWlB++vKysfjJ+" +
+                            "7Ixz096cQZL2WdW6uPqXQr7GkUgoBmGxClAj6lyKn+pKDIDp5/9S54xIwiIazEmW" +
+                            "76MH1mvkrgkeBfMG4RsXwkp9I7lmEdpFatIZU4DpUEPmJ3oTZirtb+9HHawrsM1E" +
+                            "vwIDAQAB";
+            X509EncodedKeySpec spec = new X509EncodedKeySpec(Base64.getDecoder().decode(rsaPublic));
+//            X509EncodedKeySpec spec = new X509EncodedKeySpec(rsaPublic.getBytes("UTF-8"));
+            //PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(Base64.getDecoder().decode(rsaPublic));
+            PublicKey publicKey = keyFactory.generatePublic(spec);
+            Signature sign = Signature.getInstance("SHA1withRSA");
+            sign.initVerify(publicKey);
+            //System.out.println(message);
+            sign.update(message);
+            boolean ver =sign.verify(Base64.getDecoder().decode(encodedResponse.getBytes("UTF8")));
+            //boolean ver =sign.verify(encodedResponse.getBytes("UTF8"));
+            System.out.println(ver);
+
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        } catch (InvalidKeySpecException e) {
+            e.printStackTrace();
+        } catch (InvalidKeyException e) {
+            e.printStackTrace();
+        } catch (SignatureException e) {
+            e.printStackTrace();
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        }
+        return true;
+    }
+    public static void main(String[] args) throws IOException, ValidationException {
+        ADP0009 adapter = new ADP0009();
+        List<stream.api.Detail> details = new ArrayList<>();
+        //adapter.getBillList(new ConfiguratorImpl(), details);
+
+        //adapter.sendRequest();
+        //adapter.send();
+        //adapter.sendHttpRequest();
+        //adapter.verify("", "");
+    }
+
+    public Response sendRequest(String requestBody, String headerSignature) throws ValidationException {
+        //String s = "";
+        //try {
+            //https://system.goldenpay.az:44488/web/service/BankWebService
+            //https://e-govpay.az/external/extended
+            //URL url = new URL("https://e-govpay.az/external/extended");
+
+
+            Proxy proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress(configurator.getSetting("proxyHost"), Integer.valueOf(configurator.getSetting("proxyPort"))));
+            //HttpsURLConnection connection = (HttpsURLConnection) url.openConnection(proxy);
+            //connection.setRequestMethod("POST");
+//            connection.setDoInput(true);
+//            connection.setDoOutput(true);
+            Requester request = new Requester.RequestBuilder()
+                    .endpoint("https://e-govpay.az/external/extended")
+                    .header("PayLogic-Signature", headerSignature)
+                    .payload(requestBody)
+                    .method("POST")
+                    .build();
+            request.setProxy(proxy);
+            Response response = request.execute();
+
+            if (response.getResponseCode() == 200) {
+                return response;
+            } else {
+                throw new ValidationException(String.format("Response code is not success %s",
+                        response.getResponseCode()));
+            }
+
+
+        //unmarshaller.setAdapter(new MapAdapter());
+
+            //connection.getResponseCode();
+//            connection.addRequestProperty("PayLogic-Signature", headerSignature);
+//            System.out.println("start writing to stream");
+//            BufferedWriter bw =
+//                    new BufferedWriter(new OutputStreamWriter( connection.getOutputStream()));
+//            System.out.println("writing ...");
+//
+//
+//            bw.write(requestBody);
+//
+//            System.out.println("flushing ...");
+//
+//            bw.flush();
+//            bw.close();
+//
+//
+//            BufferedReader br =
+//                    new BufferedReader(new InputStreamReader(connection.getInputStream()));
+//            String str;
+//            StringBuilder sb = new StringBuilder();
+//            InputStream is = connection.getInputStream();
+//            //approach WORKS
+//            byte[] target = new byte[1024];
+//            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+//            int readNum;
+//            //is available does not return exact
+//            long start = System.nanoTime();
+//            while ((readNum = is.read(target, 0, target.length))!= -1 ) {
+//                baos.write(target,0 , readNum);
+//            }
+//            long end = System.nanoTime();
+//            System.out.println(end-start);
+            //baos.flush();
+            //is.read(target);
+
+//            approach does not work
+//            while ((str = br.readLine()) != null) {
+//                sb.append(str);
+//            }
+//            approach WORKS
+
+//            int c;
+//            long start = System.nanoTime();
+//            while ( (c = br.read()) != -1) {
+//                sb.append((char)c);
+//            }
+//            long end = System.nanoTime();
+//            System.out.println((end-start)/1000000);
+//            Map<String, List<String>> headers =  connection.getHeaderFields();
+//
+//            System.out.println(headers.keySet());
+//            System.out.println(sb.toString());
+//            System.out.println(connection.getResponseCode());
+//            String responseEncoded = connection.getHeaderField("PayLogic-Signature");
+//            System.out.println(responseEncoded);
+//            //verify(sb.toString(), responseEncoded);
+//            //verify(target, responseEncoded);
+//            String convertedMessage = new String(baos.toByteArray());
+//
+//            JAXBContext jaxbContext = JAXBContext.newInstance(Loan.class);
+//            Unmarshaller unmarshaller = jaxbContext.createUnmarshaller();
+//            Loan loan = null;
+//
+//
+//            if (verify(baos.toByteArray(), responseEncoded)) {
+//
+//                loan = (Loan) unmarshaller.unmarshal(new StringReader(convertedMessage));
+//
+//                System.out.println(loan.getAccount());
+//                System.out.println(loan.result.loanData.map);
+//                System.out.println(loan.result.loanData.nested.loanData.map);
+//                System.out.println(loan.result.code);
+//            } else {
+//                System.out.println(String.format("Verifying signature %s is wrong %s", responseEncoded,  baos.toString()));
+//                throw new ValidationException("Verification signature is wrong");
+//            }
+//
+//
+//        } catch (MalformedURLException e) {
+//            e.printStackTrace();
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        } catch (JAXBException e) {
+//            e.printStackTrace();
+//        }
+
+    }
+
+    public void sendHttpRequest() {
+        try {
+            URL url = new URL("http://adnsu.unibook.az/adnsuEducation/login.jsp");
+            Proxy proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress("proxy1.unibank.lan", 3128));
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection(proxy);
+            connection.setRequestMethod("GET");
+            connection.setDoInput(true);
+            System.out.println(connection.getResponseCode());
+
+
+        } catch (MalformedURLException e) {
+            e.printStackTrace();
+        } catch (ProtocolException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void send() {
+        try {
+            //String url = "https://api.genderize.io/?name=peter";
+            //String url = "https://cdn.statuspage.io/se-v2.js";
+            //String url = "https://company.clearbit.com/v1/domains/find?name=google";
+            String url = "https://api.genderize.io/?name[0]=peter&name[1]=lois&name[2]=stevie";
+            //String url = "https://system.goldenpay.az:44488/web/service/BankWebService";
+            URL urlObje = new URL(url);
+            Proxy proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress("proxy1.unibank.lan", 3128));
+            HttpsURLConnection connection = (HttpsURLConnection) urlObje.openConnection(proxy);
+            connection.setRequestMethod("GET");
+            connection.setDoInput(true);
+            System.out.println("verifying ...");
+            connection.setHostnameVerifier(new HostnameVerifier() {
+                @Override
+                public boolean verify(String s, SSLSession sslSession) {
+                    System.out.println(s);
+                    return true;
+                }
+            });
+            System.out.println(connection.getResponseCode());
+
+        } catch (MalformedURLException e) {
+            e.printStackTrace();
+        } catch (ProtocolException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+    @Override
+    public void pay(Integer integer, Service service, Integer integer1, Integer integer2, Integer integer3, List<Detail> list) throws IOException, PaymentException {
+
+    }
+}

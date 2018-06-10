@@ -1,0 +1,38 @@
+package stream.api.adapter.com.unibank;
+
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+import stream.api.*;
+import stream.api.adapter.implementation.ConfiguratorImpl;
+
+import java.util.ArrayList;
+import java.util.List;
+
+
+/**
+ * Created by AzarM on 4/28/2018.
+ */
+public class ADP0009Test {
+
+    private  ADP0009 adapterKapital;
+    @Before
+    public void setUp() throws Exception {
+        adapterKapital = new ADP0009();
+        adapterKapital.initialize(new ConfiguratorImpl("ADP0009.configuration.xml"));
+    }
+
+    @Test
+    public void initialize() throws Exception {
+
+    }
+
+    @Test
+    public void getBillList() throws Exception {
+        List<stream.api.Detail> details = new ArrayList<>();
+        details.add(new Detail("loanNo", "0219266"));
+        List<stream.api.Bill> bills = adapterKapital.getBillList(new ServiceImpl(), details);
+        Assert.assertEquals(bills.get(0).getDetailList().size(), 15);
+    }
+
+}

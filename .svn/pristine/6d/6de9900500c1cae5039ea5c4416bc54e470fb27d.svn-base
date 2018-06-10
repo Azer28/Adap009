@@ -1,0 +1,34 @@
+package stream.api.adapter.com.unibank.request;
+
+import java.io.UnsupportedEncodingException;
+
+/**
+ * Created by AzarM on 4/30/2018.
+ */
+public class Response {
+
+    private byte[] byteResponse;
+    private int responseCode;
+
+    public Response() {
+
+    }
+
+    public Response(byte[] byteResponse, int responseCode) {
+        this.byteResponse = byteResponse;
+        this.responseCode = responseCode;
+    }
+
+    public byte[] getByteResponse() {
+        return byteResponse;
+    }
+
+    public String getTextResponse() throws UnsupportedEncodingException {
+        return new String(byteResponse, "UTF8");
+    }
+
+    public int getResponseCode() {
+        return responseCode;
+    }
+
+}

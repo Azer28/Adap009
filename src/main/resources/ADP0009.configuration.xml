@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<muffin>
+    <!-- Adapter settings -->
+    <section name="adapter">
+        <setting name="url">https://e-govpay.az/external/extended</setting>
+        <setting name="user">TEST</setting>
+        <setting name="password">test</setting>
+        <setting name="proxyHost">proxy2.unibank.lan</setting>
+        <setting name="proxyPort">3128</setting>
+        <setting name="serviceCode">238</setting>
+        <setting name="pointNumber">273</setting>
+    </section>
+    <!-- end -->
+</muffin>
